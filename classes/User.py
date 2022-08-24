@@ -42,8 +42,9 @@ class User:
 
 
 class userServerSide(User):
-    def __init__(self, connection=None, ip_port=None):
+    def __init__(self, connection=None, ip_port=None, database=None):
         super().__init__(connection, ip_port)
+        self.database = database
 
     def key_exchange(self):
         private_key, public_key = self.ssl_system.create_keys()
@@ -55,16 +56,16 @@ class userServerSide(User):
         self.aes_system = AESSystem(cipher_key)
 
     def create_user_account(self, username, password):
-        result = database.check_credentials(self.username, password)
+        result = self.database.check_credentials(self.username, password)
         if result:
             return False
-        database.create_user(username, password)
+        self.database.create_user(username, password)
         return True
 
     def receive_user_credentials(self, username, password): # check credentials here
         credentials = self.receive_and_unpack(encrypted=True)
 
-        result = database.check_credentials(username, password)
+        result = self.database.check_credentials(username, password)
         if result:
             return True
         return False

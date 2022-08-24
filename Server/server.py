@@ -18,17 +18,6 @@ from AES import AESSystem
 sys.path.insert(1, r'New-chat-server\classes')
 from User import userServerSide
 
-pwd = os.path.dirname(os.path.abspath(__file__))
-conf_file = os.path.join(pwd, r'server-conf.yaml')
-with open(conf_file, 'r') as cf:
-    data = yaml.load(cf, Loader=yaml.FullLoader)
-    link = data[0]['Database']['link']
-    username = data[0]['Database']['username']
-    password = data[0]['Database']['password']
-
-graph = Graph(link, auth=(username, password), secure=True, verify=True)
-database = Database(graph)
-
 #
     # class User:
     #     def __init__(self, connection=None, ip_port=None):
@@ -107,12 +96,12 @@ database = Database(graph)
 
 
 class Server:
-    def __init__(self, IP, PORT, link, username, password):
-        sys_log_file = filename = os.path.join(pwd, r'system_logs.txt')
-        msg_log_file = filename = os.path.join(pwd, r'message_logs.txt')
+    def __init__(self, **kwargs):#IP, PORT, db_link, db_username, db_password):
+        sys_log_file = filename = os.path.join(r'system_logs.txt')
+        msg_log_file = filename = os.path.join(r'message_logs.txt')
 
-        self.IP = IP
-        self.PORT = PORT
+        self.IP = kwargs['ip']
+        self.PORT = kwargs['port']
         self.connections = []
         self.message_queue = []
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -123,6 +112,9 @@ class Server:
         self.connections_lock = multiprocessing.Lock()
         self.message_lock = multiprocessing.Lock()
 
+        graph = Graph(kwargs['dbLink'], auth=(kwargs['dbUsername'], kwargs['dbPassword']), secure=True, verify=True)
+        self.database = Database(graph)
+
         print('[+] Initialized')
 
     def accept_users(self):
@@ -130,7 +122,7 @@ class Server:
         while True:
             response = {'response':None}
             connection, ip_port = self.sock.accept()
-            user = userServerSide(connection=connection, ip_port=ip_port)
+            user = userServerSide(connection=connection, ip_port=ip_port, database=self.database)
             user.key_exchange()
             
             print('GOT HERE')
@@ -185,7 +177,8 @@ class Server:
         await asyncio.gather(*self.connections)
         
 
-if __name__ == "__main__":
-    server = Server('192.168.0.173', 4444, 'neo4j+s://33cee990.databases.neo4j.io:7687', 'neo4j', '3rhoAmtSTX-7bfvV3eVCR2VqhRg_45_rbBdK6Tr5NGM')
-    asyncio.run(server.main())
+# if __name__ == "__main__":
+    
+#     server = Server(r'server-conf.yaml')
+#     asyncio.run(server.main())
 
