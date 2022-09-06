@@ -29,8 +29,3 @@ class Database:
             create_user = "CREATE (u:USER" + " {" f'username:"{username}", password:"{password}"' + "})"
 
             self.graph.run(create_user)
-
-
-# if __name__ == "__main__":
-#     database = Database('neo4j+s://33cee990.databases.neo4j.io:7687', 'neo4j', '3rhoAmtSTX-7bfvV3eVCR2VqhRg_45_rbBdK6Tr5NGM')
-#     database.create_user("sugma", "TEST")

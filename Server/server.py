@@ -1,5 +1,4 @@
 import socket
-import asyncio
 import multiprocessing
 import ssl
 import json
@@ -12,87 +11,12 @@ import yaml
 import sys
 import time
 
-sys.path.insert(0, r'New-chat-server\encryption-algorithms')
+sys.path.insert(0, r'C:\Users\ahuma\Desktop\Programming\python_programs\Misc Projects\New-chat-server\encryption-algorithms')
 from SSL import SSLSystem
 from AES import AESSystem
-sys.path.insert(1, r'New-chat-server\classes')
+sys.path.insert(1, r'C:\Users\ahuma\Desktop\Programming\python_programs\Misc Projects\New-chat-server\classes')
 from User import userServerSide
-
-#
-    # class User:
-    #     def __init__(self, connection=None, ip_port=None):
-    #         self.connection = connection
-    #         self.ip, self.port = ip_port
-    #         self.username = None
-    #         self.ssl_system = SSLSystem()
-    #         self.aes_system = None
-
-    #     def receive_and_unpack(self, encrypted=False):
-    #         json_package = ""
-    #         while True:
-    #             if not encrypted:
-    #                 try:
-    #                     json_package = json_package + \
-    #                         self.connection.recv(32768).decode('utf-8')
-    #                     return json.loads(json_package)
-    #                 except ValueError:
-    #                     continue
-    #             else:
-    #                 try:
-    #                     json_package = json_package + \
-    #                         self.aes_system.decrypt(self.connection.recv(32768).decode('utf-8'))
-    #                     return json.loads(json_package)
-    #                 except ValueError:
-    #                     continue
-
-    #     def pack_and_send(self, data, encrypted=False):
-    #         if not encrypted:
-    #             json_package = json.dumps(data)
-    #             self.connection.send(json_package.encode('utf-8'))
-    #         else:
-    #             json_package = json.dumps(data)
-    #             json_package = self.aes_system.encrypt(json_package)
-    #             self.connection.send(json_package)
-
-    #     def key_exchange(self):
-    #         private_key, public_key = self.ssl_system.create_keys()
-    #         print(public_key)
-    #         self.pack_and_send(public_key)
-    #         cipher_key_encrypted = self.receive_and_unpack()
-    #         cipher_key = self.ssl_system.decrypt_message(
-    #             cipher_key_encrypted, public_key, private_key)
-    #         self.aes_system = AESSystem(cipher_key)
-
-    #     def create_user_account(self, username, password):
-    #         result = database.check_credentials(self.username, password)
-    #         if result:
-    #             return False
-    #         database.create_user(username, password)
-    #         return True
-
-    #     def receive_user_credentials(self, username, password): # check credentials here
-    #         credentials = self.receive_and_unpack(encrypted=True)
-
-    #         result = database.check_credentials(username, password)
-    #         if result:
-    #             return True
-    #         return False
-
-    #     def handle_user_connection(self):
-    #         request = self.receive_and_unpack(encrypted=True)
-    #         self.username = request['username']
-    #         password = request['password']
-    #         print(self.username)
-    #         print(password)
-    #         print(request['request_type'])
-
-    #         if request['request_type'] == 'create_user':
-    #             print('x')
-    #             return self.create_user_account(self.username, password)
-
-    #         elif request['request_type'] == 'login':
-    #             print('y')
-    #             return True#self.receive_user_credentials(self.username, password)
+from killable_thread import ServerThread
 
 
 class Server:
@@ -120,6 +44,7 @@ class Server:
     def accept_users(self):
         print("[+] Accepting Users")
         while True:
+            print("At top of loop")
             response = {'response':None}
             connection, ip_port = self.sock.accept()
             user = userServerSide(connection=connection, ip_port=ip_port, database=self.database)
@@ -143,38 +68,59 @@ class Server:
             print('GOT HERE2')
             # user_thread = threading.Thread(target=await self.userio, args=[user])
             # user_thread.start()
-            coroutine = asyncio.create_task(self.userio(user))
+            user_dict = {'user':user,
+                         'receive':ServerThread(target=self.receive, args=[user]), 
+                         'send':ServerThread(target=self.send, args=[user]), 
+                         'ping':ServerThread(target=user.ping_connection, args=(send_thread, receive_thread))
+                        }
+            user_dict['receive'].start()
+            user_dict['send'].start()
+            user_dict['ping'].start()
+
             with self.connections_lock:
-                self.connections.append(coroutine)
+                self.connections.append(user_dict)
             print('user connected')
             print(self.connections)
             
-    async def receive(self, user):
+    def receive(self, user):
         while True:
             with self.message_lock:
-                message = await user.receive_and_unpack(encrypted=True)
-                self.message_queue.append(message)
-                print(self.message)
+                message = user.receive_and_unpack(encrypted=True)
+                with self.message_lock:
+                    self.message_queue.append(message)
+                print(message)
 
-    async def send(self, user):
+    def send(self, user):
         while True:
             with self.message_lock:
                 for message in self.message_queue:
-                    await user.pack_and_send(message, encrypted=True)
+                    user.pack_and_send(message, encrypted=True)
+                    self.message_queue.remove(message)
+                    time.sleep(0.05)
+        
+    def cancel_connection(connection):
+        if not connection['receive'].is_alive():
+            connection['ping'].kill()
+            del connection['user']
 
-    async def userio(self, user):
-        send_task = asyncio.create_task(self.send(user))
-        receive_task = asyncio.create_task(self.receive(user))
+            connection['receive'].join()
+            connection['send'].join()
+            connection['ping'].join()
 
-        await send_task
-        await receive_task
+            with self.connections_lock:
+                self.connections.remove(connection)
+            
+    def canceller(self):
+        while True:
+            for connection in self.connections:
+                self.cancel_connection(connection)
 
-    async def main(self):
-        threads = [self.accept_users()]
-        list(map(lambda x: threading.Thread(target=x).start(), threads))
+    def main(self):
+        connect = ServerThread(target=self.accept_users)
+        cancel = ServerThread(target=self.canceller)
+        connect.start()
+        cancel.start()
 
-        time.sleep(15)
-        await asyncio.gather(*self.connections)
         
 
 # if __name__ == "__main__":
